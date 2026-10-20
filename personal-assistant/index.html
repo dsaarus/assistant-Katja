@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Personal Assistant</title>
+<title>Katja</title>
 <meta name="theme-color" content="#1f5fbf">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
-/* Layout: one column, tabs on top. Katya's chat is the home screen; List, Memory and Settings sit beside it. */
+/* Layout: one column, tabs on top. Katja's chat is the home screen; List, Memory and Settings sit beside it. */
 :root {
   --bg: #e9eef1; --surface: #f8fafb; --ink: #14242d; --muted: #55676f; --line: #c6d2d8;
   --accent: #1f5fbf; --accent-ink: #ffffff;
@@ -39,7 +39,8 @@
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.45; }
 .wrap { max-width: 760px; margin-inline: auto; padding-inline: 16px; padding-block: calc(16px + env(safe-area-inset-top, 0px)) 48px; display: flex; flex-direction: column; gap: 16px; }
-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; }
+header .status { justify-self: end; }
 h1 { font-family: var(--display); font-size: 1.6rem; margin: 0; flex: 1 1 auto; }
 .status { display: flex; align-items: center; gap: 6px; font-size: 0.875rem; color: var(--muted); }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
@@ -67,11 +68,13 @@ select, input[type="text"], input[type="url"], input[type="date"], input[type="t
 .box textarea { width: 100%; min-height: 90px; resize: vertical; border: 0; background: transparent; padding: 4px; font-size: 1.05rem; }
 .box textarea:focus { outline: none; }
 .chat { display: flex; flex-direction: column; gap: 10px; }
-/* On the Katya tab the page fits the window: the conversation scrolls, the message box stays at the bottom. */
+/* On the Katja tab the page fits the window: the conversation scrolls, the message box stays at the bottom. */
 body.katya-on { overflow: hidden; }
 body.katya-on .wrap { height: 100vh; height: 100dvh; padding-bottom: 16px; }
 #view-katya { flex: 1 1 auto; min-height: 0; }
-header, .tabs, #view-katya .ai-label, #view-katya .box, #view-katya .note { flex-shrink: 0; }
+header, .tabs, #chatForm, #chatNote { flex-shrink: 0; }
+h1 { text-align: center; }
+#chatNote:empty { display: none; }
 #view-katya .chat { flex: 1 1 auto; min-height: 80px; overflow-y: auto; padding-right: 4px; }
 #view-katya .box textarea { min-height: 64px; }
 .msg { max-width: 88%; padding: 9px 12px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -121,12 +124,34 @@ label.field input, label.field select { width: 100%; }
 <body>
 <div class="wrap">
   <header>
-    <h1>Personal Assistant</h1>
+    <span aria-hidden="true"></span>
+    <h1>Katja</h1>
     <div class="status" title="Whether the M1 mini is answering. Click to check again." role="button" tabindex="0"><span class="dot" id="dot"></span><span id="statusText">Checking the mini</span></div>
   </header>
 
+  <form class="box" id="chatForm">
+    <label class="hint" for="chatInput">Message to Katja</label>
+    <textarea id="chatInput" placeholder="Hello, D. Is there something I can help you with or schedule?"></textarea>
+    <div class="row">
+      <input type="checkbox" id="autoSend">
+      <label for="autoSend">Send by itself when I stop talking for</label>
+      <select id="autoSecs" aria-label="Seconds of pause before sending">
+        <option value="3">3 seconds</option><option value="5">5 seconds</option><option value="8">8 seconds</option><option value="12">12 seconds</option>
+      </select>
+    </div>
+    <div class="hint" id="autoHint" hidden>Hands-free is on. Start your Mac's dictation once, keep the cursor in this box, and talk. Each pause sends what you said.</div>
+    <div class="hint" id="echoHint" hidden>Read aloud is also on. Use headphones, or dictation may pick up Katja's voice.</div>
+    <div class="row">
+      <span class="hint grow">Enter sends. Shift+Enter starts a new line.</span>
+      <button class="btn" type="button" id="stopBtn" hidden>Stop</button>
+      <button class="btn" type="button" id="clearChat">Clear chat</button>
+      <button class="btn primary" type="submit" id="sendBtn">Send</button>
+    </div>
+  </form>
+  <div class="note" id="chatNote" role="status" aria-live="polite"></div>
+
   <nav class="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" id="tab-katya" aria-selected="true">Katya</button>
+    <button role="tab" id="tab-katya" aria-selected="true">Katja</button>
     <button role="tab" id="tab-list" aria-selected="false">List</button>
     <button role="tab" id="tab-memory" aria-selected="false">Memory</button>
     <button role="tab" id="tab-settings" aria-selected="false">Settings</button>
@@ -134,28 +159,7 @@ label.field input, label.field select { width: 100%; }
 
   <!-- KATYA -->
   <section class="view" id="view-katya">
-    <div class="ai-label">Katya is an AI assistant. She runs on your M1 mini and remembers only what is in the Memory tab.</div>
     <div class="chat" id="chat"></div>
-    <form class="box" id="chatForm">
-      <label class="hint" for="chatInput">Message to Katya</label>
-      <textarea id="chatInput" placeholder="Hello, D. Is there something I can help you with or schedule?"></textarea>
-      <div class="row">
-        <input type="checkbox" id="autoSend">
-        <label for="autoSend">Send by itself when I stop talking for</label>
-        <select id="autoSecs" aria-label="Seconds of pause before sending">
-          <option value="3">3 seconds</option><option value="5">5 seconds</option><option value="8">8 seconds</option><option value="12">12 seconds</option>
-        </select>
-      </div>
-      <div class="hint" id="autoHint" hidden>Hands-free is on. Start your Mac's dictation once, keep the cursor in this box, and talk. Each pause sends what you said.</div>
-      <div class="hint" id="echoHint" hidden>Read aloud is also on. Use headphones, or dictation may pick up Katya's voice.</div>
-      <div class="row">
-        <span class="hint grow">Enter sends. Shift+Enter starts a new line.</span>
-        <button class="btn" type="button" id="stopBtn" hidden>Stop</button>
-        <button class="btn" type="button" id="clearChat">Clear chat</button>
-        <button class="btn primary" type="submit" id="sendBtn">Send</button>
-      </div>
-    </form>
-    <div class="note" id="chatNote" role="status" aria-live="polite"></div>
   </section>
 
   <!-- LIST -->
@@ -182,7 +186,7 @@ label.field input, label.field select { width: 100%; }
 
   <!-- MEMORY -->
   <section class="view" id="view-memory" hidden>
-    <p class="hint">These are the facts Katya keeps about you. She reads them before every reply. Edit or delete anything.</p>
+    <p class="hint">These are the facts Katja keeps about you. She reads them before every reply. Edit or delete anything.</p>
     <form class="row" id="memForm">
       <input type="text" id="memInput" class="grow" placeholder="Add a fact, for example: I work best in 15-minute blocks" aria-label="New fact">
       <button class="btn primary" type="submit">Add</button>
@@ -203,8 +207,8 @@ label.field input, label.field select { width: 100%; }
       <div class="row"><button class="btn" type="button" id="testBtn">Test connection</button><span class="note" id="testNote"></span></div>
     </fieldset>
     <fieldset>
-      <legend>Katya's voice</legend>
-      <div class="row"><input type="checkbox" id="speakOn"><label for="speakOn">Read Katya's replies aloud</label></div>
+      <legend>Katja's voice</legend>
+      <div class="row"><input type="checkbox" id="speakOn"><label for="speakOn">Read Katja's replies aloud</label></div>
       <label class="field">Voice
         <select id="voiceSel"></select>
       </label>
@@ -230,14 +234,14 @@ label.field input, label.field select { width: 100%; }
       </div>
       <div class="note" id="backupNote" role="status" aria-live="polite"></div>
     </fieldset>
-    <p class="hint">Personal Assistant, stage 1. Version <span id="ver"></span>.</p>
+    <p class="hint">Katja is an AI assistant. She runs on your M1 mini and remembers only what is in the Memory tab. Version <span id="ver"></span>.</p>
   </section>
 </div>
 
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.6";
+  var VERSION = "0.1.8";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -385,14 +389,14 @@ label.field input, label.field select { width: 100%; }
   setInterval(function () { if (!document.hidden) checkStatus(); }, 60000);
   document.addEventListener("visibilitychange", function () { if (!document.hidden) checkStatus(); });
 
-  // ---------- Katya's instructions and tools ----------
+  // ---------- Katja's instructions and tools ----------
   function systemPrompt() {
     var now = new Date();
     var open = items.filter(function (i) { return !i.done; }).slice(0, 80);
     var recent = items.filter(function (i) { return i.done; }).sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); }).slice(0, 10);
     var slim = function (i) { return { id: i.id, text: i.text, kind: i.kind, due: i.due, time: i.time, repeat: i.repeat || "", project: i.project, done: !!i.done }; };
     return [
-      "You are Katya, the user's office personal assistant inside their Personal Assistant app. You are an AI. If asked, say so plainly.",
+      "You are Katja, the user's office personal assistant inside their Katja app. You are an AI. If asked, say so plainly.",
       "Today is " + today() + ", " + now.toLocaleDateString("en-US", { weekday: "long" }) + ". The time is " + pad(now.getHours()) + ":" + pad(now.getMinutes()) + ".",
       "",
       "STYLE: Plain text only, no Markdown, no bullet symbols. Short, clear, literal sentences. No jokes, no sarcasm, no figures of speech. Calm and non-judgmental. If you disagree, say so politely and explain why. Never lecture.",
@@ -514,6 +518,7 @@ label.field input, label.field select { width: 100%; }
   function ask(text) {
     text = (text || "").trim();
     if (!text || busy) return;
+    if ($("view-katya").hidden) show("katya");
     busy = true; stopSpeaking(); note("chatNote", "");
     chat.push({ role: "user", content: text, at: Date.now() }); saveChat();
     $("chatInput").value = ""; try { localStorage.removeItem("pa_draft"); } catch (e) {}
@@ -562,7 +567,8 @@ label.field input, label.field select { width: 100%; }
       if (log.updated) parts.push("Updated " + log.updated + (log.updated === 1 ? " item" : " items"));
       if (log.remembered) parts.push("Remembered " + log.remembered + (log.remembered === 1 ? " fact" : " facts"));
       if (!reply) reply = parts.length ? "Done." : "I have no answer for that. Try saying it another way.";
-      chat.push({ role: "assistant", content: reply, did: parts.join(". "), pending: log.pending, at: Date.now() });
+      var wrote = log.addedIds.length || log.notes.length || log.facts.length;
+      chat.push({ role: "assistant", content: reply, did: wrote ? "" : parts.join(". "), pending: log.pending, at: Date.now() });
       saveChat(); speak(reply);
     }).catch(function (e) {
       var aborted = e && e.name === "AbortError";
@@ -572,7 +578,7 @@ label.field input, label.field select { width: 100%; }
       if (aborted) note("chatNote", "Stopped. Your message is back in the box.");
       else {
         setStatus(false);
-        note("chatNote", "Katya could not reach the M1 mini. Check that the mini is on and that Tailscale is connected on this Mac. Your message is back in the box.", true);
+        note("chatNote", "Katja could not reach the M1 mini. Check that the mini is on and that Tailscale is connected on this Mac. Your message is back in the box.", true);
       }
       if (log.added || log.updated || log.remembered) note("chatNote", $("chatNote").textContent + " Some changes were already saved; check the List tab.", true);
     }).then(function () {
@@ -590,10 +596,11 @@ label.field input, label.field select { width: 100%; }
   function summary(log) {
     var out = [];
     var added = log.addedIds.map(function (id) { return items.filter(function (i) { return i.id === id; })[0]; }).filter(Boolean);
-    if (added.length) out.push("I added " + added.length + (added.length === 1 ? " item: " : " items: ") + added.map(function (i) { return i.text + whenText(i); }).join("; ") + ".");
+    if (added.length) out.push("Completed. " + (added.length === 1 ? "Here is the 1 item" : "Here are the " + added.length + " items") + " added to your To-do list:\n" +
+      added.map(function (i, n) { return (n + 1) + ". " + i.text + whenText(i); }).join("\n"));
     out = out.concat(log.notes);
     if (log.facts.length) out.push("I will remember: " + log.facts.join("; ") + ".");
-    return out.join(" ");
+    return out.join("\n\n");
   }
 
   // ---------- chat view ----------
@@ -602,7 +609,8 @@ label.field input, label.field select { width: 100%; }
     chatEl.textContent = "";
     if (!chat.length && !pending) {
       var e = el("div", "empty");
-      e.appendChild(el("strong", "", "Tell Katya what is on your mind"));
+      e.appendChild(el("strong", "", "Tell Katja what is on your mind"));
+      e.appendChild(el("span", "", "Katja is an AI assistant running on your M1 mini. "));
       e.appendChild(el("span", "", "Say everything in one message, in any order. She splits it into items, files each one, and sets dates she can read from your words. You can also ask what is due or what to do next."));
       chatEl.appendChild(e);
     }
@@ -671,7 +679,7 @@ label.field input, label.field select { width: 100%; }
     if (busy) return;
     if (!clearArmed) { clearArmed = true; $("clearChat").textContent = "Click again to clear"; setTimeout(function () { clearArmed = false; $("clearChat").textContent = "Clear chat"; }, 4000); return; }
     clearArmed = false; $("clearChat").textContent = "Clear chat";
-    chat = []; saveChat(); renderChat(false); note("chatNote", "Chat cleared. Your list and Katya's memory are unchanged.");
+    chat = []; saveChat(); renderChat(false); note("chatNote", "Chat cleared. Your list and Katja's memory are unchanged.");
   });
 
   // ---------- hands-free auto-send ----------
@@ -728,7 +736,7 @@ label.field input, label.field select { width: 100%; }
   $("speakOn").checked = !!settings.speak;
   $("speakOn").addEventListener("change", function () { settings.speak = $("speakOn").checked; saveSettings(); if (!settings.speak) stopSpeaking(); armAuto(); });
   $("voiceSel").addEventListener("change", function () { settings.voice = $("voiceSel").value; saveSettings(); });
-  $("voiceTest").addEventListener("click", function () { var was = settings.speak; settings.speak = true; speak("Hello. I am Katya, your assistant. This is how I sound."); settings.speak = was; });
+  $("voiceTest").addEventListener("click", function () { var was = settings.speak; settings.speak = true; speak("Hello. I am Katja, your assistant. This is how I sound."); settings.speak = was; });
 
   // ---------- list ----------
   var FILTERS = [["open", "All open"], ["todo", "To-dos"], ["appt", "Appointments"], ["note", "Notes"], ["thought", "Thoughts"], ["repeat", "Repeating"], ["done", "Done"]];
@@ -767,7 +775,7 @@ label.field input, label.field select { width: 100%; }
     var rows = visible();
     if (!rows.length) {
       var e = el("div", "empty");
-      if (!items.length) { e.appendChild(el("strong", "", "Nothing saved yet")); e.appendChild(el("span", "", "Tell Katya what is on your mind, or type items in the box above.")); }
+      if (!items.length) { e.appendChild(el("strong", "", "Nothing saved yet")); e.appendChild(el("span", "", "Tell Katja what is on your mind, or type items in the box above.")); }
       else { e.appendChild(el("strong", "", "Nothing in this view")); e.appendChild(el("span", "", "Pick another filter above.")); }
       list.appendChild(e); return;
     }
@@ -843,7 +851,7 @@ label.field input, label.field select { width: 100%; }
   var memEdit = null, memDel = null;
   function renderMem() {
     var box = $("memList"); box.textContent = "";
-    if (!memory.length) { var e = el("div", "empty"); e.appendChild(el("strong", "", "Katya has not saved any facts yet")); e.appendChild(el("span", "", "Tell her things like “I start work at 9” or “my manager is Dana”, or add a fact above.")); box.appendChild(e); return; }
+    if (!memory.length) { var e = el("div", "empty"); e.appendChild(el("strong", "", "Katja has not saved any facts yet")); e.appendChild(el("span", "", "Tell her things like “I start work at 9” or “my manager is Dana”, or add a fact above.")); box.appendChild(e); return; }
     memory.forEach(function (m) {
       var r = el("div", "mem");
       if (memEdit === m.id) {
@@ -902,7 +910,7 @@ label.field input, label.field select { width: 100%; }
         pendingImport = d;
         $("importSummary").textContent = "This backup has " + d.items.length + " items and " + ((d.memory_katya || []).length) + " remembered facts. It replaces what is on this Mac now.";
         $("importConfirm").hidden = false;
-      } catch (e) { note("backupNote", "That file is not a Personal Assistant backup.", true); }
+      } catch (e) { note("backupNote", "That file is not a Katja backup.", true); }
       $("importFile").value = "";
     };
     rd.readAsText(f);

@@ -1,7 +1,7 @@
 {
-  "name": "Personal Assistant",
-  "short_name": "Assistant",
-  "description": "Katya, your office assistant, running on your own Mac mini.",
+  "name": "Katja",
+  "short_name": "Katja",
+  "description": "Katja, your office assistant, running on your own Mac mini.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
