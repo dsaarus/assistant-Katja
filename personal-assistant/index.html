@@ -68,6 +68,8 @@ select, input[type="text"], input[type="url"], input[type="date"], input[type="t
 .box textarea { width: 100%; min-height: 90px; resize: vertical; border: 0; background: transparent; padding: 4px; font-size: 1.05rem; }
 .box textarea:focus { outline: none; }
 .chat { display: flex; flex-direction: column; gap: 10px; }
+.turn { display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.turn:last-child { border-bottom: 0; }
 /* On the Katja tab the page fits the window: the conversation scrolls, the message box stays at the bottom. */
 body.katya-on { overflow: hidden; }
 body.katya-on .wrap { height: 100vh; height: 100dvh; padding-bottom: 16px; }
@@ -247,7 +249,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.11";
+  var VERSION = "0.1.13";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -413,6 +415,7 @@ label.field input, label.field select { width: 100%; }
       "STYLE: Plain text only, no Markdown, no bullet symbols. Clear, direct sentences. When the user is just chatting, chat back naturally; never answer with phrases like 'No action taken'. If you disagree, say so politely and explain why. Never lecture.",
       "",
       "YOUR JOB: capture what the user says, organize it, help plan the day, and keep track of deadlines.",
+      "Only save things D needs to do, attend or keep as a note. Jokes, knock-knock jokes, greetings, thanks and questions about you are conversation: answer them directly and never save them as items. If D asks for a joke, tell one right away.",
       "When the message contains things to do or remember, call add_item once for each separate item. Keep the user's own words, trimmed. Do not add an item that is already in the list below.",
       "Kinds: todo (an action), appt (happens at a set date or time), note (an idea or fact for a project), thought (anything to park, no action).",
       "Set due as YYYY-MM-DD when a date is stated or clearly implied; work out words like tomorrow or Friday from today's date. Set time as 24-hour HH:MM whenever a time is mentioned, for example 1130am is 11:30 and 3pm is 15:00. If a time is given without a date, use today's date.",
@@ -448,11 +451,22 @@ label.field input, label.field select { width: 100%; }
   ];
 
   // Runs one tool call. Returns the text sent back to the model.
+  // Small talk is answered without the saving tools, because the model otherwise files jokes and greetings as items.
+  var CHAT_RE = /\b(jokes?|joking|funny|make me laugh|knock[ ,.!-]*knock|who'?s there|riddle|pun|fun fact|how are you|how'?s it going|how was your|what'?s up|hello|hi|hey|good (morning|afternoon|evening|night)|thanks|thank you|who are you|what can you do|about yourself|your name|you there)\b/i;
+  var TASK_RE = /\b(remind|add|to-?do|list|schedule|appointment|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekdays?|weekends?|every|need to|have to|must|deadline|due|remember that|at \d|\d\s*(am|pm))\b/i;
+  function isSmallTalk(text) {
+    var prev = chat.slice(0, -1).filter(function (m) { return m.role === "assistant"; }).slice(-1)[0];
+    var p = prev ? String(prev.content || "").trim() : "";
+    // Keep a knock-knock joke going: answers to "Who's there?" and "... who?" are part of the joke.
+    if (/who'?s there\??["!.]*$/i.test(p) || /\bwho\?["!.]*$/i.test(p)) return true;
+    return CHAT_RE.test(text) && !TASK_RE.test(text);
+  }
   function runTool(name, args, log) {
     args = args || {};
     if (name === "add_item") {
       var text = String(args.text || "").trim().slice(0, 2000);
       if (!text) return "Error: text is empty.";
+      if (CHAT_RE.test(text) && !TASK_RE.test(text) && text.split(/\s+/).length <= 6) return "Not saved: this is conversation, not a task. Answer D directly instead.";
       var dup = items.some(function (i) { return !i.done && i.text.toLowerCase() === text.toLowerCase(); });
       if (dup) return "Already on the list; not added again.";
       var due = cleanDate(args.due), time = cleanTime(args.time);
@@ -537,10 +551,10 @@ label.field input, label.field select { width: 100%; }
     var history = chat.slice(-16).filter(function (m) { return m.role === "user" || m.role === "assistant"; }).map(function (m) { return { role: m.role, content: m.content }; });
     var msgs = [{ role: "system", content: systemPrompt() }].concat(history);
     var log = { added: 0, updated: 0, remembered: 0, pending: [], addedIds: [], notes: [], facts: [] };
-    var round = 0;
+    var round = 0, smallTalk = isSmallTalk(text);
 
     function step() {
-      var useTools = round < 3;
+      var useTools = round < 3 && !smallTalk;
       return ollamaChat(msgs, useTools).then(function (res) {
         var m = (res && res.message) || {};
         var calls = (m.tool_calls && m.tool_calls.length) ? m.tool_calls : inlineCalls(m.content);
@@ -626,15 +640,19 @@ label.field input, label.field select { width: 100%; }
       e.appendChild(pic); e.appendChild(t);
       chatEl.appendChild(e);
     }
+    // Newest first: each message and Katja's reply stay together in reading order; the newest exchange is on top.
+    var turns = [], cur = null;
     chat.forEach(function (m, idx) {
+      if (m.role === "user" || !cur) { cur = el("div", "turn"); turns.push(cur); }
       var b = el("div", "msg " + (m.role === "user" ? "me" : "bot"), m.content);
       if (m.did) b.appendChild(el("span", "did", m.did));
       if (m.pending && m.pending.length) b.appendChild(confirmBox(m, idx));
-      chatEl.appendChild(m.role === "user" ? b : botRow(b));
+      cur.appendChild(m.role === "user" ? b : botRow(b));
     });
-    if (pending) chatEl.appendChild(botRow(el("div", "msg bot", "Thinking...")));
+    if (pending && cur) cur.appendChild(botRow(el("div", "msg bot", "Thinking...")));
+    for (var t = turns.length - 1; t >= 0; t--) chatEl.appendChild(turns[t]);
     $("sendBtn").disabled = busy; $("stopBtn").hidden = !busy;
-    chatEl.scrollTop = chatEl.scrollHeight;
+    chatEl.scrollTop = 0;
   }
   function botRow(b) {
     var r = el("div", "botrow"), a = document.createElement("img");
