@@ -1,5 +1,5 @@
 // Keeps the app's own files available offline. Requests to the M1 mini always go to the network.
-const CACHE = "pa-v0.1.17";
+const CACHE = "pa-v0.1.18";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./katja.png", "./katja-face.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => {

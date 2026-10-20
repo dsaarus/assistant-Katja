@@ -139,7 +139,22 @@ h1 { text-align: center; }
 .edit label { display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; color: var(--muted); min-width: 0; }
 .edit .wide { flex: 1 1 100%; }
 .edit textarea, .mem textarea { width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 8px; min-height: 56px; }
-.mem { border-bottom: 1px solid var(--line); padding: 10px 0; display: flex; gap: 8px; align-items: flex-start; }
+.mem { border-bottom: 1px solid var(--line); padding: 10px 0; display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.mem:last-child { border-bottom: 0; }
+.wrapline { flex-wrap: wrap; }
+#memForm input, #fileForm input { flex: 1 1 160px; min-width: 0; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.newfile summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
+.newfile form { margin-top: 8px; }
+.mfile { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); margin-bottom: 10px; }
+.mfile > summary { cursor: pointer; padding: 10px 12px; display: flex; gap: 8px; align-items: baseline; list-style: none; }
+.mfile > summary::-webkit-details-marker { display: none; }
+.mfile > summary::before { content: "\25B8"; color: var(--muted); }
+.mfile[open] > summary::before { content: "\25BE"; }
+.mfile > summary strong { font-family: var(--display); }
+.mfile > summary .hint { flex: 1 1 auto; }
+.mfile .body { padding: 0 12px 8px; }
+.mfile .tools { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 0 4px; }
+.mfile .tools input { flex: 1 1 140px; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .mem .text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 legend { font-family: var(--display); font-weight: 700; padding: 0 4px; }
@@ -215,11 +230,21 @@ label.field input, label.field select { width: 100%; }
 
   <!-- MEMORY -->
   <section class="view" id="view-memory" hidden>
-    <p class="hint">These are the facts Katja keeps about you. She reads them before every reply. Edit or delete anything.</p>
-    <form class="row" id="memForm">
-      <input type="text" id="memInput" class="grow" placeholder="Add a fact, for example: I work best in 15-minute blocks" aria-label="New fact">
+    <p class="hint">These are the facts Katja keeps, sorted into files. Give a person, pet, place or project its own file, for example one file per dog. She reads every file before each reply. Edit, move or delete anything.</p>
+    <form class="row wrapline" id="memForm">
+      <input type="text" id="memInput" class="grow" placeholder="Add a fact, for example: Saki loves carrots" aria-label="New fact">
+      <select id="memFile" aria-label="File for the new fact"></select>
       <button class="btn primary" type="submit">Add</button>
     </form>
+    <details class="newfile" id="newFileBox">
+      <summary>New file</summary>
+      <form class="row wrapline" id="fileForm">
+        <input type="text" id="fileName" placeholder="Name, e.g. Saki" aria-label="File name">
+        <input type="text" id="fileAbout" placeholder="What it is, e.g. dog" aria-label="What the file is about">
+        <button class="btn primary" type="submit">Create file</button>
+      </form>
+    </details>
+    <span class="note" id="memNote"></span>
     <div id="memList"></div>
   </section>
 
@@ -280,7 +305,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.17";
+  var VERSION = "0.1.18";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -295,6 +320,12 @@ label.field input, label.field select { width: 100%; }
   function saveItems() { save("items", items); if (typeof renderCal === "function") renderCal(); }
   function saveChat() { save("chat_katya", chat.slice(-80)); }
   function saveMem() { save("mem_katya", memory); }
+  // Memory files: each fact can belong to a file (a person, pet, place or project). Facts with no file are "General".
+  var files = load("files_katya", []);
+  function saveFiles() { save("files_katya", files); }
+  function fileById(id) { return files.filter(function (f) { return f.id === id; })[0]; }
+  function fileByName(n) { n = String(n || "").trim().toLowerCase(); return files.filter(function (f) { return f.name.toLowerCase() === n; })[0]; }
+  function fileLabel(f) { return f ? f.name + (f.about ? " (" + f.about + ")" : "") : "General"; }
   function saveSettings() { save("settings", settings); }
 
   // ---------- helpers ----------
@@ -429,6 +460,16 @@ label.field input, label.field select { width: 100%; }
   document.addEventListener("visibilitychange", function () { if (!document.hidden) checkStatus(); });
 
   // ---------- Katja's instructions and tools ----------
+  function memoryForPrompt() {
+    if (!memory.length && !files.length) return "- (nothing yet)";
+    var out = [], general = memory.filter(function (m) { return !fileById(m.file); });
+    if (general.length) out.push("General:\n" + general.map(function (m) { return "- " + m.text; }).join("\n"));
+    files.forEach(function (f) {
+      var fs = memory.filter(function (m) { return m.file === f.id; });
+      out.push("File " + fileLabel(f) + ":\n" + (fs.length ? fs.map(function (m) { return "- " + m.text; }).join("\n") : "- (no facts yet)"));
+    });
+    return out.join("\n");
+  }
   function systemPrompt() {
     var now = new Date();
     var open = items.filter(function (i) { return !i.done; }).slice(0, 80);
@@ -438,7 +479,7 @@ label.field input, label.field select { width: 100%; }
       "You are Katja, the office personal assistant of the user, who is called D, inside D's Katja app. You are an AI. If asked, say so plainly.",
       "",
       "WHAT YOU KNOW ABOUT D. These are facts D told you, written in D's own words, so \"I\" and \"my\" mean D, not you. Use them whenever they relate to what D says or asks. If D asks about something listed here, answer from it. Never say you do not know something that is listed here.",
-      memory.length ? memory.map(function (m) { return "- " + m.text; }).join("\n") : "- (nothing yet)",
+      memoryForPrompt(),
       "",
       "Today is " + today() + ", " + now.toLocaleDateString("en-US", { weekday: "long" }) + ". The time is " + pad(now.getHours()) + ":" + pad(now.getMinutes()) + ".",
       "",
@@ -453,7 +494,7 @@ label.field input, label.field select { width: 100%; }
       "If the item happens regularly, set repeat: daily (every day), weekdays (Monday to Friday), weekends, weekly, or monthly.",
       "When the user says something is finished, call update_item with done set to true. A repeating item then moves to its next date by itself.",
       "To change an existing item's date or time, call update_item. The app asks the user to confirm before it changes.",
-      "When the user tells you a lasting fact about themselves, their work or their preferences, call remember with that fact in one short sentence. Never remember what D just said in the conversation, such as a greeting or a request for a joke.",
+      "When the user tells you a lasting fact about themselves, their work or their preferences, call remember with that fact in one short sentence. If the fact is about one person, pet, place or project, set file to its name (use an existing file name when one fits, for example a dog's name); otherwise leave file empty. Never remember what D just said in the conversation, such as a greeting or a request for a joke.",
       "When the user asks what is due or what to do next, answer from the list below. Name at most 5 items, soonest first.",
       "If nothing needs saving, just answer. After using tools, reply in one or two plain sentences saying how many items you added or changed and any dates or times you set. Do not repeat the whole list unless the user asks for it. Example: I added 4 items. The dog walk is today at 11:30.",
       "You cannot delete items. If asked, say the user can delete items in the List tab under Edit.",
@@ -478,7 +519,9 @@ label.field input, label.field select { width: 100%; }
       due: { type: "string", description: "YYYY-MM-DD" }, time: { type: "string", description: "HH:MM" }, project: { type: "string" },
       repeat: { type: "string", "enum": ["", "daily", "weekdays", "weekends", "weekly", "monthly"] } }, required: ["id"] } } },
     { type: "function", "function": { name: "remember", description: "Save a lasting fact about the user so you know it in future conversations.", parameters: { type: "object", properties: {
-      fact: { type: "string", description: "One short sentence" } }, required: ["fact"] } } }
+      fact: { type: "string", description: "One short sentence" },
+      file: { type: "string", description: "Name of the file this fact belongs to: a person, pet, place or project, e.g. Saki. Empty for general facts about the user." },
+      about: { type: "string", description: "Only for a new file: what it is, e.g. dog, coworker, project" } }, required: ["fact"] } } }
   ];
 
   // Runs one tool call. Returns the text sent back to the model.
@@ -540,8 +583,14 @@ label.field input, label.field select { width: 100%; }
         return "Not saved: this is part of the conversation, not a lasting fact. Answer D directly instead.";
       var known = memory.filter(function (m) { return m.text.toLowerCase() === fact.toLowerCase() || similarity(m.text, fact) >= 0.5; })[0];
       if (known) return "Already remembered as: \"" + known.text + "\". Do not save it again. Answer D's message using this fact.";
-      memory.push({ id: uid(), text: fact, createdAt: Date.now() }); saveMem(); log.remembered++; log.facts.push(fact.replace(/[.]+$/, ""));
-      return "Remembered.";
+      var fname = String(args.file || "").trim().slice(0, 60), f = null;
+      if (fname && !/^(general|none|user|d|me|the user)$/i.test(fname)) {
+        f = fileByName(fname);
+        if (!f) { f = { id: uid(), name: fname, about: String(args.about || "").trim().slice(0, 40) }; files.push(f); saveFiles(); }
+      }
+      memory.push({ id: uid(), text: fact, file: f ? f.id : "", createdAt: Date.now() }); saveMem(); log.remembered++;
+      log.facts.push(fact.replace(/[.]+$/, "") + (f ? " (in " + f.name + "'s file)" : ""));
+      return f ? "Remembered in the file " + f.name + "." : "Remembered.";
     }
     return "Error: unknown tool " + name + ".";
   }
@@ -996,31 +1045,95 @@ label.field input, label.field select { width: 100%; }
   $("cWeek").addEventListener("click", function () { setFilter("week"); });
 
   // ---------- memory ----------
-  var memEdit = null, memDel = null;
+  var memEdit = null, memDel = null, fileEdit = null, fileDel = null, openFiles = {};
+  function fileOptions(sel, current) {
+    sel.textContent = "";
+    var g = el("option", "", "General"); g.value = ""; sel.appendChild(g);
+    files.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (f) { var o = el("option", "", fileLabel(f)); o.value = f.id; sel.appendChild(o); });
+    sel.value = current && fileById(current) ? current : "";
+  }
+  function factRow(m) {
+    var r = el("div", "mem");
+    if (memEdit === m.id) {
+      var ta = document.createElement("textarea"); ta.value = m.text; ta.setAttribute("aria-label", "Edit fact");
+      var mv = document.createElement("select"); mv.setAttribute("aria-label", "File"); fileOptions(mv, m.file);
+      var sv = el("button", "btn primary", "Save"); sv.type = "button";
+      var cn = el("button", "btn", "Cancel"); cn.type = "button";
+      sv.addEventListener("click", function () { var v = ta.value.trim(); if (v) m.text = v.slice(0, 300); m.file = mv.value; saveMem(); memEdit = null; if (m.file) openFiles[m.file] = true; renderMem(); });
+      cn.addEventListener("click", function () { memEdit = null; renderMem(); });
+      r.appendChild(ta); r.appendChild(el("span", "hint", "File")); r.appendChild(mv); r.appendChild(sv); r.appendChild(cn);
+    } else {
+      r.appendChild(el("div", "text", m.text));
+      var ed = el("button", "btn", "Edit"); ed.type = "button";
+      ed.addEventListener("click", function () { memEdit = m.id; memDel = null; renderMem(); });
+      var del = el("button", "btn danger", memDel === m.id ? "Confirm delete" : "Delete"); del.type = "button";
+      del.addEventListener("click", function () { if (memDel !== m.id) { memDel = m.id; renderMem(); return; } memory = memory.filter(function (x) { return x.id !== m.id; }); saveMem(); memDel = null; renderMem(); });
+      r.appendChild(ed); r.appendChild(del);
+    }
+    return r;
+  }
+  function fileBlock(f, facts) {
+    var d = document.createElement("details"); d.className = "mfile";
+    var key = f ? f.id : "general"; d.open = !!openFiles[key];
+    d.addEventListener("toggle", function () { openFiles[key] = d.open; });
+    var sm = document.createElement("summary");
+    sm.appendChild(el("strong", "", f ? f.name : "General"));
+    sm.appendChild(el("span", "hint", (f && f.about ? f.about + " \u00b7 " : f ? "" : "facts about you \u00b7 ") + facts.length + (facts.length === 1 ? " fact" : " facts")));
+    d.appendChild(sm);
+    var body = el("div", "body");
+    if (!facts.length) body.appendChild(el("p", "hint", "No facts in this file yet."));
+    facts.forEach(function (m) { body.appendChild(factRow(m)); });
+    if (f) {
+      var tools = el("div", "tools");
+      if (fileEdit === f.id) {
+        var n = document.createElement("input"); n.value = f.name; n.setAttribute("aria-label", "File name");
+        var a = document.createElement("input"); a.value = f.about || ""; a.placeholder = "What it is"; a.setAttribute("aria-label", "What it is");
+        var sv = el("button", "btn primary", "Save"); sv.type = "button";
+        sv.addEventListener("click", function () { var v = n.value.trim(); if (v && (!fileByName(v) || fileByName(v) === f)) f.name = v.slice(0, 60); f.about = a.value.trim().slice(0, 40); saveFiles(); fileEdit = null; renderMem(); });
+        tools.appendChild(n); tools.appendChild(a); tools.appendChild(sv);
+      } else {
+        var addHere = el("button", "btn", "Add a fact here"); addHere.type = "button";
+        addHere.addEventListener("click", function () { $("memFile").value = f.id; $("memInput").focus(); $("memInput").scrollIntoView({ block: "center" }); });
+        var rn = el("button", "btn", "Rename"); rn.type = "button";
+        rn.addEventListener("click", function () { fileEdit = f.id; fileDel = null; renderMem(); });
+        var dl = el("button", "btn danger", fileDel === f.id ? "Confirm: delete file, move its facts to General" : "Delete file"); dl.type = "button";
+        dl.addEventListener("click", function () {
+          if (fileDel !== f.id) { fileDel = f.id; renderMem(); return; }
+          memory.forEach(function (m) { if (m.file === f.id) m.file = ""; });
+          files = files.filter(function (x) { return x.id !== f.id; }); saveFiles(); saveMem(); fileDel = null; renderMem(); fileOptions($("memFile"), "");
+        });
+        tools.appendChild(addHere); tools.appendChild(rn); tools.appendChild(dl);
+      }
+      body.appendChild(tools);
+    }
+    d.appendChild(body);
+    return d;
+  }
   function renderMem() {
     var box = $("memList"); box.textContent = "";
-    if (!memory.length) { var e = el("div", "empty"); e.appendChild(el("strong", "", "Katja has not saved any facts yet")); e.appendChild(el("span", "", "Tell her things like “I start work at 9” or “my manager is Dana”, or add a fact above.")); box.appendChild(e); return; }
-    memory.forEach(function (m) {
-      var r = el("div", "mem");
-      if (memEdit === m.id) {
-        var ta = document.createElement("textarea"); ta.value = m.text; ta.setAttribute("aria-label", "Edit fact");
-        var sv = el("button", "btn primary", "Save"); sv.type = "button";
-        sv.addEventListener("click", function () { var v = ta.value.trim(); if (v) { m.text = v.slice(0, 300); saveMem(); } memEdit = null; renderMem(); });
-        r.appendChild(ta); r.appendChild(sv);
-      } else {
-        r.appendChild(el("div", "text", m.text));
-        var ed = el("button", "btn", "Edit"); ed.type = "button";
-        ed.addEventListener("click", function () { memEdit = m.id; memDel = null; renderMem(); });
-        var del = el("button", "btn danger", memDel === m.id ? "Confirm delete" : "Delete"); del.type = "button";
-        del.addEventListener("click", function () { if (memDel !== m.id) { memDel = m.id; renderMem(); return; } memory = memory.filter(function (x) { return x.id !== m.id; }); saveMem(); memDel = null; renderMem(); });
-        r.appendChild(ed); r.appendChild(del);
-      }
-      box.appendChild(r);
+    var keep = $("memFile").value; fileOptions($("memFile"), keep);
+    if (!memory.length && !files.length) { var e = el("div", "empty"); e.appendChild(el("strong", "", "Katja has not saved any facts yet")); e.appendChild(el("span", "", "Tell her things like “I start work at 9” or “Saki loves carrots”, or add a fact above.")); box.appendChild(e); return; }
+    var general = memory.filter(function (m) { return !fileById(m.file); });
+    if (openFiles.general === undefined) openFiles.general = true;
+    box.appendChild(fileBlock(null, general));
+    files.slice().sort(function (a, b) { return (a.about || "~").localeCompare(b.about || "~") || a.name.localeCompare(b.name); }).forEach(function (f) {
+      box.appendChild(fileBlock(f, memory.filter(function (m) { return m.file === f.id; })));
     });
   }
   $("memForm").addEventListener("submit", function (e) {
     e.preventDefault(); var v = $("memInput").value.trim(); if (!v) return;
-    memory.push({ id: uid(), text: v.slice(0, 300), createdAt: Date.now() }); saveMem(); $("memInput").value = ""; renderMem();
+    var fid = $("memFile").value;
+    memory.push({ id: uid(), text: v.slice(0, 300), file: fid, createdAt: Date.now() }); saveMem(); $("memInput").value = "";
+    if (fid) openFiles[fid] = true; else openFiles.general = true;
+    renderMem(); $("memFile").value = fid;
+  });
+  $("fileForm").addEventListener("submit", function (e) {
+    e.preventDefault(); var n = $("fileName").value.trim(); if (!n) return;
+    if (fileByName(n)) { note("memNote", "There is already a file named " + n + ".", true); return; }
+    var f = { id: uid(), name: n.slice(0, 60), about: $("fileAbout").value.trim().slice(0, 40) }; files.push(f); saveFiles();
+    $("fileName").value = ""; $("fileAbout").value = ""; openFiles[f.id] = true;
+    note("memNote", "File " + f.name + " created. Add facts to it with the box above, or move facts into it with Edit.");
+    renderMem(); $("memFile").value = f.id;
   });
 
   // ---------- settings ----------
@@ -1041,7 +1154,7 @@ label.field input, label.field select { width: 100%; }
 
   // ---------- backup ----------
   $("exportBtn").addEventListener("click", function () {
-    var data = { app: "personal-assistant", version: VERSION, exportedAt: new Date().toISOString(), items: items, memory_katya: memory, chat_katya: chat, settings: settings };
+    var data = { app: "personal-assistant", version: VERSION, exportedAt: new Date().toISOString(), items: items, memory_katya: memory, files_katya: files, chat_katya: chat, settings: settings };
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "personal-assistant-backup-" + today() + ".json";
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
@@ -1065,7 +1178,7 @@ label.field input, label.field select { width: 100%; }
   });
   $("importYes").addEventListener("click", function () {
     if (!pendingImport) return;
-    items = pendingImport.items; memory = pendingImport.memory_katya || []; chat = pendingImport.chat_katya || [];
+    items = pendingImport.items; memory = pendingImport.memory_katya || []; chat = pendingImport.chat_katya || []; files = pendingImport.files_katya || []; saveFiles();
     if (pendingImport.settings && Array.isArray(pendingImport.settings.say)) { settings.say = pendingImport.settings.say; saveSettings(); renderSay(); }
     saveItems(); saveMem(); saveChat(); pendingImport = null; $("importConfirm").hidden = true;
     note("backupNote", "Backup restored."); renderChat(false);
@@ -1074,7 +1187,7 @@ label.field input, label.field select { width: 100%; }
   $("eraseBtn").addEventListener("click", function () { $("eraseYes").hidden = false; $("eraseNo").hidden = false; $("eraseBtn").hidden = true; });
   $("eraseNo").addEventListener("click", function () { $("eraseYes").hidden = true; $("eraseNo").hidden = true; $("eraseBtn").hidden = false; });
   $("eraseYes").addEventListener("click", function () {
-    items = []; memory = []; chat = []; saveItems(); saveMem(); saveChat();
+    items = []; memory = []; chat = []; files = []; saveItems(); saveMem(); saveChat(); saveFiles();
     $("eraseYes").hidden = true; $("eraseNo").hidden = true; $("eraseBtn").hidden = false;
     note("backupNote", "All data erased. Settings were kept."); renderChat(false);
   });
