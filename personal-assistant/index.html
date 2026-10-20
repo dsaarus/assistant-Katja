@@ -80,6 +80,12 @@ h1 { text-align: center; }
 .msg { max-width: 88%; padding: 9px 12px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.me { align-self: flex-end; background: var(--ink); color: var(--bg); }
 .msg.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); }
+.botrow { align-self: flex-start; display: flex; gap: 8px; align-items: flex-start; max-width: 92%; }
+.botrow .msg.bot { max-width: none; min-width: 0; }
+.avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; background: #c9d6de; border: 1px solid var(--line); }
+.empty.hello { display: flex; gap: 16px; align-items: flex-end; }
+.empty.hello img { width: 110px; height: auto; flex: 0 0 110px; }
+@media (max-width: 480px) { .empty.hello img { width: 80px; flex-basis: 80px; } }
 .msg .did { display: block; margin-top: 6px; font-size: 0.8rem; color: var(--muted); }
 .confirm { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 6px; }
 .confirm .row { gap: 6px; }
@@ -241,7 +247,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.8";
+  var VERSION = "0.1.9";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -608,21 +614,28 @@ label.field input, label.field select { width: 100%; }
   function renderChat(pending) {
     chatEl.textContent = "";
     if (!chat.length && !pending) {
-      var e = el("div", "empty");
-      e.appendChild(el("strong", "", "Tell Katja what is on your mind"));
-      e.appendChild(el("span", "", "Katja is an AI assistant running on your M1 mini. "));
-      e.appendChild(el("span", "", "Say everything in one message, in any order. She splits it into items, files each one, and sets dates she can read from your words. You can also ask what is due or what to do next."));
+      var e = el("div", "empty hello"), pic = document.createElement("img"), t = el("div", "");
+      pic.src = "katja.png"; pic.alt = "Katja";
+      t.appendChild(el("strong", "", "Tell Katja what is on your mind"));
+      t.appendChild(el("span", "", "Katja is an AI assistant running on your M1 mini. "));
+      t.appendChild(el("span", "", "Say everything in one message, in any order. She splits it into items, files each one, and sets dates she can read from your words. You can also ask what is due or what to do next."));
+      e.appendChild(pic); e.appendChild(t);
       chatEl.appendChild(e);
     }
     chat.forEach(function (m, idx) {
       var b = el("div", "msg " + (m.role === "user" ? "me" : "bot"), m.content);
       if (m.did) b.appendChild(el("span", "did", m.did));
       if (m.pending && m.pending.length) b.appendChild(confirmBox(m, idx));
-      chatEl.appendChild(b);
+      chatEl.appendChild(m.role === "user" ? b : botRow(b));
     });
-    if (pending) chatEl.appendChild(el("div", "msg bot", "Thinking..."));
+    if (pending) chatEl.appendChild(botRow(el("div", "msg bot", "Thinking...")));
     $("sendBtn").disabled = busy; $("stopBtn").hidden = !busy;
     chatEl.scrollTop = chatEl.scrollHeight;
+  }
+  function botRow(b) {
+    var r = el("div", "botrow"), a = document.createElement("img");
+    a.className = "avatar"; a.src = "katja-face.png"; a.alt = "";
+    r.appendChild(a); r.appendChild(b); return r;
   }
   function describeChange(p) {
     var it = items.filter(function (i) { return i.id === p.id; })[0];
