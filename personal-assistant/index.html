@@ -78,6 +78,11 @@ h1 { text-align: center; }
 #chatForm textarea { min-height: 56px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* Two-week calendar on the Katja tab */
+.subhead { margin: 8px 0 0; font-size: 1rem; font-family: var(--display); }
+.sayrows { display: flex; flex-direction: column; gap: 6px; }
+.sayrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.sayrow .grow { min-width: 0; overflow-wrap: anywhere; }
+#sayForm input { flex: 1 1 150px; min-width: 0; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
 .cal .dow { padding: 6px 8px; font-size: 0.75rem; font-weight: 700; color: var(--muted); text-align: right; border-bottom: 1px solid var(--line); }
 .cal .day { min-height: 96px; padding: 6px; border-right: 1px solid var(--line); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
@@ -237,6 +242,16 @@ label.field input, label.field select { width: 100%; }
         <select id="voiceSel"></select>
       </label>
       <div class="row"><button class="btn" type="button" id="voiceTest">Test voice</button><span class="hint">Eastern European voices are listed first. Add more in System Settings &gt; Accessibility &gt; Spoken Content.</span></div>
+      <h3 class="subhead">Pronunciation</h3>
+      <p class="hint">Write a word the way it is spelled, then the way Katja should say it. Spell the second one by sound, for example Saki as SAH-kee. This only changes how she speaks, not what she writes.</p>
+      <div class="sayrows" id="sayList"></div>
+      <form class="row" id="sayForm">
+        <input type="text" id="sayWord" placeholder="Written, e.g. Miríaña" aria-label="Word as written" spellcheck="false">
+        <input type="text" id="sayAs" placeholder="Say it as, e.g. meer-ee-AHN-yah" aria-label="Say it as" spellcheck="false">
+        <button class="btn" type="button" id="sayTry">Play</button>
+        <button class="btn primary" type="submit">Add</button>
+      </form>
+      <span class="note" id="sayNote"></span>
     </fieldset>
     <fieldset>
       <legend>Backup</legend>
@@ -265,7 +280,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.16";
+  var VERSION = "0.1.17";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -818,11 +833,36 @@ label.field input, label.field select { width: 100%; }
     sel.appendChild(other);
     sel.value = settings.voice || "";
   }
+  // Pronunciation list: whole words are swapped for the "say it as" spelling, only for speaking.
+  function escRe(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  function sayFix(text) {
+    (settings.say || []).forEach(function (p) {
+      if (!p.w || !p.s) return;
+      try { text = text.replace(new RegExp("(?<![\\p{L}\\p{N}])" + escRe(p.w) + "(?![\\p{L}\\p{N}])", "giu"), p.s); }
+      catch (e) { text = text.split(p.w).join(p.s); }
+    });
+    return text;
+  }
+  function renderSay() {
+    var box = $("sayList"); box.textContent = "";
+    var list = settings.say || [];
+    if (!list.length) { box.appendChild(el("span", "hint", "No pronunciations yet.")); return; }
+    list.forEach(function (p, i) {
+      var r = el("div", "sayrow");
+      r.appendChild(el("span", "grow", p.w + "  \u2192  " + p.s));
+      var play = el("button", "btn", "Play"); play.type = "button";
+      play.addEventListener("click", function () { speakNow(p.w); });
+      var del = el("button", "btn", "Delete"); del.type = "button";
+      del.addEventListener("click", function () { settings.say.splice(i, 1); saveSettings(); renderSay(); });
+      r.appendChild(play); r.appendChild(del); box.appendChild(r);
+    });
+  }
+  function speakNow(t) { var was = settings.speak; settings.speak = true; speak(t); settings.speak = was; }
   function speak(text) {
     if (!settings.speak || !synth || !text) return;
     try {
       stopSpeaking();
-      var u = new SpeechSynthesisUtterance(text);
+      var u = new SpeechSynthesisUtterance(sayFix(text));
       var v = voices().filter(function (x) { return x.voiceURI === settings.voice; })[0];
       if (v) { u.voice = v; u.lang = v.lang; }
       u.onend = function () { armAuto(); };
@@ -834,7 +874,17 @@ label.field input, label.field select { width: 100%; }
   $("speakOn").checked = !!settings.speak;
   $("speakOn").addEventListener("change", function () { settings.speak = $("speakOn").checked; saveSettings(); if (!settings.speak) stopSpeaking(); armAuto(); });
   $("voiceSel").addEventListener("change", function () { settings.voice = $("voiceSel").value; saveSettings(); });
-  $("voiceTest").addEventListener("click", function () { var was = settings.speak; settings.speak = true; speak("Hello. I am Katja, your assistant. This is how I sound."); settings.speak = was; });
+  $("voiceTest").addEventListener("click", function () { speakNow("Hello. I am Katja, your assistant. This is how I sound."); });
+  $("sayTry").addEventListener("click", function () { var a = $("sayAs").value.trim() || $("sayWord").value.trim(); if (a) { var was = settings.speak; settings.speak = true; try { stopSpeaking(); var u = new SpeechSynthesisUtterance(a); var v = voices().filter(function (x) { return x.voiceURI === settings.voice; })[0]; if (v) { u.voice = v; u.lang = v.lang; } synth.speak(u); } catch (e) {} settings.speak = was; } });
+  $("sayForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var w = $("sayWord").value.trim(), a = $("sayAs").value.trim();
+    if (!w || !a) { note("sayNote", "Fill in both boxes.", true); return; }
+    settings.say = (settings.say || []).filter(function (p) { return p.w.toLowerCase() !== w.toLowerCase(); });
+    settings.say.push({ w: w.slice(0, 80), s: a.slice(0, 120) }); saveSettings();
+    $("sayWord").value = ""; $("sayAs").value = ""; note("sayNote", "Saved. Katja now says " + w + " as " + a + "."); renderSay();
+  });
+  renderSay();
 
   // ---------- list ----------
   var FILTERS = [["open", "All open"], ["todo", "To-dos"], ["appt", "Appointments"], ["note", "Notes"], ["thought", "Thoughts"], ["repeat", "Repeating"], ["done", "Done"]];
@@ -1016,6 +1066,7 @@ label.field input, label.field select { width: 100%; }
   $("importYes").addEventListener("click", function () {
     if (!pendingImport) return;
     items = pendingImport.items; memory = pendingImport.memory_katya || []; chat = pendingImport.chat_katya || [];
+    if (pendingImport.settings && Array.isArray(pendingImport.settings.say)) { settings.say = pendingImport.settings.say; saveSettings(); renderSay(); }
     saveItems(); saveMem(); saveChat(); pendingImport = null; $("importConfirm").hidden = true;
     note("backupNote", "Backup restored."); renderChat(false);
   });
