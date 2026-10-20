@@ -12,7 +12,7 @@
 /* Layout: one column, tabs on top. Katja's chat is the home screen; List, Memory and Settings sit beside it. */
 :root {
   --bg: #e9eef1; --surface: #f8fafb; --ink: #14242d; --muted: #55676f; --line: #c6d2d8;
-  --accent: #1f5fbf; --accent-ink: #ffffff;
+  --accent: #1f5fbf; --accent-ink: #ffffff; --today: #c8502a;
   --k-todo: #174f9e; --k-todo-bg: #d6e5fa;
   --k-appt: #7a2d6b; --k-appt-bg: #f1d9ec;
   --k-note: #1d6247; --k-note-bg: #d3eddf;
@@ -25,7 +25,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #101a20; --surface: #18252d; --ink: #e6eef2; --muted: #9bb0ba; --line: #2f4350;
-    --accent: #7fb2f5; --accent-ink: #0c1820;
+    --accent: #7fb2f5; --accent-ink: #0c1820; --today: #d9622b;
     --k-todo: #a5c8f8; --k-todo-bg: #16304f;
     --k-appt: #edb4e1; --k-appt-bg: #44203d;
     --k-note: #9bdcbc; --k-note-bg: #173a2b;
@@ -70,15 +70,29 @@ select, input[type="text"], input[type="url"], input[type="date"], input[type="t
 .chat { display: flex; flex-direction: column; gap: 10px; }
 .turn { display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .turn:last-child { border-bottom: 0; }
-/* On the Katja tab the page fits the window: the conversation scrolls, the message box stays at the bottom. */
-body.katya-on { overflow: hidden; }
-body.katya-on .wrap { height: 100vh; height: 100dvh; padding-bottom: 16px; }
-#view-katya { flex: 1 1 auto; min-height: 0; }
+/* The conversation sits inside the message box, above where you type, and scrolls on its own. */
 header, .tabs, #chatForm, #chatNote { flex-shrink: 0; }
 h1 { text-align: center; }
 #chatNote:empty { display: none; }
-#view-katya .chat { flex: 1 1 auto; min-height: 80px; overflow-y: auto; padding-right: 4px; }
-#view-katya .box textarea { min-height: 64px; }
+#chatForm .chat { height: clamp(140px, 28vh, 320px); overflow-y: auto; padding: 2px 4px 8px 0; border-bottom: 1px solid var(--line); }
+#chatForm textarea { min-height: 56px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Two-week calendar on the Katja tab */
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.cal .dow { padding: 6px 8px; font-size: 0.75rem; font-weight: 700; color: var(--muted); text-align: right; border-bottom: 1px solid var(--line); }
+.cal .day { min-height: 96px; padding: 6px; border-right: 1px solid var(--line); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cal .day:nth-child(7n) { border-right: 0; }
+.cal .day.past { opacity: 0.6; }
+.cal .num { align-self: flex-end; font-size: 0.85rem; font-weight: 700; min-width: 24px; height: 24px; line-height: 24px; text-align: center; border-radius: 12px; }
+.cal .day.today .num { background: var(--today); color: #fff; }
+.cal .ev { display: block; width: 100%; border: 0; border-left: 3px solid var(--accent); background: transparent; padding: 1px 0 1px 5px; text-align: left; cursor: pointer; font-size: 0.75rem; line-height: 1.25; min-width: 0; }
+.cal .ev span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cal .ev small { display: block; color: var(--muted); font-size: 0.65rem; }
+.cal .ev.over { border-left-color: var(--warn); }
+.cal .more { font-size: 0.7rem; color: var(--muted); }
+.calhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.calhead strong { font-family: var(--display); }
+@media (max-width: 520px) { .cal .day { min-height: 84px; padding: 4px 3px; } .cal .dow { padding: 4px; } }
 .msg { max-width: 88%; padding: 9px 12px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.me { align-self: flex-end; background: var(--ink); color: var(--bg); }
 .msg.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); }
@@ -86,7 +100,7 @@ h1 { text-align: center; }
 .botrow .msg.bot { max-width: none; min-width: 0; }
 .avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; background: #c9d6de; border: 1px solid var(--line); }
 .empty.hello { display: flex; gap: 16px; align-items: flex-end; }
-.empty.hello img { width: 110px; height: auto; flex: 0 0 110px; }
+.empty.hello img { width: 80px; height: auto; flex: 0 0 80px; }
 @media (max-width: 480px) { .empty.hello img { width: 80px; flex-basis: 80px; } }
 .msg .did { display: block; margin-top: 6px; font-size: 0.8rem; color: var(--muted); }
 .confirm { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 6px; }
@@ -138,7 +152,8 @@ label.field input, label.field select { width: 100%; }
   </header>
 
   <form class="box" id="chatForm">
-    <label class="hint" for="chatInput">Message to Katja</label>
+    <div class="chat" id="chat" aria-live="polite"></div>
+    <label class="sr-only" for="chatInput">Message to Katja</label>
     <textarea id="chatInput" placeholder="Hello, D. Is there something I can help you with or schedule?"></textarea>
     <div class="row">
       <input type="checkbox" id="autoSend">
@@ -167,7 +182,8 @@ label.field input, label.field select { width: 100%; }
 
   <!-- KATYA -->
   <section class="view" id="view-katya">
-    <div class="chat" id="chat"></div>
+    <div class="calhead"><strong id="calTitle">This week and next</strong><span class="hint">Click an item to edit it.</span></div>
+    <div class="cal" id="cal"></div>
   </section>
 
   <!-- LIST -->
@@ -249,7 +265,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.14";
+  var VERSION = "0.1.16";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -261,7 +277,7 @@ label.field input, label.field select { width: 100%; }
   var chat = load("chat_katya", []);
   var memory = load("mem_katya", []);
   var settings = Object.assign({}, DEFAULTS, load("settings", {}));
-  function saveItems() { save("items", items); }
+  function saveItems() { save("items", items); if (typeof renderCal === "function") renderCal(); }
   function saveChat() { save("chat_katya", chat.slice(-80)); }
   function saveMem() { save("mem_katya", memory); }
   function saveSettings() { save("settings", settings); }
@@ -298,9 +314,9 @@ label.field input, label.field select { width: 100%; }
     return "";
   }
   // How alike two item texts are, from 0 to 1, comparing their main words (ignoring times, numbers and small words).
-  var STOP = ["the", "a", "an", "at", "around", "about", "to", "for", "on", "in", "by", "my", "me", "and", "of", "with", "is", "it", "am", "pm", "today", "tomorrow", "tonight", "need", "remind"];
+  var STOP = ["i", "user", "has", "have", "d", "the", "a", "an", "at", "around", "about", "to", "for", "on", "in", "by", "my", "me", "and", "of", "with", "is", "it", "am", "pm", "today", "tomorrow", "tonight", "need", "remind"];
   function words(t) {
-    return String(t || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(function (w) {
+    return String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(function (w) {
       return w && !/\d/.test(w) && STOP.indexOf(w) < 0;
     }).map(function (w) { return w.length > 3 && /s$/.test(w) && !/ss$/.test(w) ? w.slice(0, -1) : w; });
   }
@@ -367,7 +383,7 @@ label.field input, label.field select { width: 100%; }
     VIEWS.forEach(function (n) { $("view-" + n).hidden = n !== v; $("tab-" + n).setAttribute("aria-selected", String(n === v)); });
     document.body.classList.toggle("katya-on", v === "katya");
     try { localStorage.setItem("pa_tab", v); } catch (e) {}
-    if (v === "list") renderList(); if (v === "memory") renderMem(); if (v === "katya") $("chatInput").focus();
+    if (v === "list") renderList(); if (v === "memory") renderMem(); if (v === "katya") { renderCal(); $("chatInput").focus(); }
   }
   VIEWS.forEach(function (n) { $("tab-" + n).addEventListener("click", function () { show(n); }); });
 
@@ -422,7 +438,7 @@ label.field input, label.field select { width: 100%; }
       "If the item happens regularly, set repeat: daily (every day), weekdays (Monday to Friday), weekends, weekly, or monthly.",
       "When the user says something is finished, call update_item with done set to true. A repeating item then moves to its next date by itself.",
       "To change an existing item's date or time, call update_item. The app asks the user to confirm before it changes.",
-      "When the user tells you a lasting fact about themselves, their work or their preferences, call remember with that fact in one short sentence.",
+      "When the user tells you a lasting fact about themselves, their work or their preferences, call remember with that fact in one short sentence. Never remember what D just said in the conversation, such as a greeting or a request for a joke.",
       "When the user asks what is due or what to do next, answer from the list below. Name at most 5 items, soonest first.",
       "If nothing needs saving, just answer. After using tools, reply in one or two plain sentences saying how many items you added or changed and any dates or times you set. Do not repeat the whole list unless the user asks for it. Example: I added 4 items. The dog walk is today at 11:30.",
       "You cannot delete items. If asked, say the user can delete items in the List tab under Edit.",
@@ -504,7 +520,11 @@ label.field input, label.field select { width: 100%; }
     if (name === "remember") {
       var fact = String(args.fact || "").trim().slice(0, 300);
       if (!fact) return "Error: fact is empty.";
-      if (memory.some(function (m) { return m.text.toLowerCase() === fact.toLowerCase(); })) return "Already remembered.";
+      // Facts about this conversation itself ("The user said hello") are not lasting facts.
+      if (/\b(user|D)\s+(just\s+)?(said|says|asked|asks|greeted|greets|wants a joke|is saying)\b/i.test(fact) || (CHAT_RE.test(fact) && !TASK_RE.test(fact) && fact.split(/\s+/).length <= 6))
+        return "Not saved: this is part of the conversation, not a lasting fact. Answer D directly instead.";
+      var known = memory.filter(function (m) { return m.text.toLowerCase() === fact.toLowerCase() || similarity(m.text, fact) >= 0.5; })[0];
+      if (known) return "Already remembered as: \"" + known.text + "\". Do not save it again. Answer D's message using this fact.";
       memory.push({ id: uid(), text: fact, createdAt: Date.now() }); saveMem(); log.remembered++; log.facts.push(fact.replace(/[.]+$/, ""));
       return "Remembered.";
     }
@@ -632,6 +652,42 @@ label.field input, label.field select { width: 100%; }
     out = out.concat(log.notes);
     if (log.facts.length) out.push("I will remember: " + log.facts.join("; ") + ".");
     return out.join("\n\n");
+  }
+
+  // ---------- two-week calendar (this week and next, Sunday to Saturday) ----------
+  function fmtClock(t) { var p = String(t || "").split(":"); if (p.length < 2) return ""; var h = +p[0], m = p[1]; var ap = h >= 12 ? "PM" : "AM"; h = h % 12 || 12; return h + (m === "00" ? "" : ":" + m) + " " + ap; }
+  function renderCal() {
+    var box = $("cal"); if (!box) return;
+    box.textContent = "";
+    var t = today(), start = new Date(); start.setDate(start.getDate() - start.getDay());
+    var first = dateStr(start), endD = new Date(start); endD.setDate(endD.getDate() + 13); var last = dateStr(endD);
+    var byDay = {};
+    items.forEach(function (it) {
+      if (it.done) return;
+      var d = it.due || (it.repeat ? firstDate(it.repeat) : "");
+      if (!d) return;
+      if (!it.repeat) { if (d >= first && d <= last) (byDay[d] = byDay[d] || []).push(it); return; }
+      var guard = 0;
+      while (d < first && guard++ < 400) d = stepDate(d, it.repeat);
+      while (d <= last && guard++ < 400) { (byDay[d] = byDay[d] || []).push(it); d = stepDate(d, it.repeat); }
+    });
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach(function (n) { box.appendChild(el("div", "dow", n)); });
+    for (var i = 0; i < 14; i++) {
+      var day = new Date(start); day.setDate(start.getDate() + i); var ds = dateStr(day);
+      var cell = el("div", "day" + (ds === t ? " today" : ds < t ? " past" : ""));
+      cell.appendChild(el("span", "num", String(day.getDate())));
+      var list = (byDay[ds] || []).slice().sort(function (a, b) { return (a.time || "99") < (b.time || "99") ? -1 : 1; });
+      list.slice(0, 4).forEach(function (it) {
+        var b = el("button", "ev" + (ds < t && !it.repeat ? " over" : "")); b.type = "button";
+        b.title = it.text + (it.time ? ", " + fmtClock(it.time) : "") + (it.repeat ? ", " + REPEATS[it.repeat].toLowerCase() : "");
+        b.appendChild(el("span", "", it.text));
+        if (it.time) b.appendChild(el("small", "", fmtClock(it.time)));
+        b.addEventListener("click", function () { filter = "open"; show("list"); openId = it.id; renderList(); });
+        cell.appendChild(b);
+      });
+      if (list.length > 4) cell.appendChild(el("span", "more", "+" + (list.length - 4) + " more"));
+      box.appendChild(cell);
+    }
   }
 
   // ---------- chat view ----------
