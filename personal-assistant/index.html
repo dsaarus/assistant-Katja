@@ -247,7 +247,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.9";
+  var VERSION = "0.1.10";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -405,7 +405,8 @@ label.field input, label.field select { width: 100%; }
       "You are Katja, the user's office personal assistant inside their Katja app. You are an AI. If asked, say so plainly.",
       "Today is " + today() + ", " + now.toLocaleDateString("en-US", { weekday: "long" }) + ". The time is " + pad(now.getHours()) + ":" + pad(now.getMinutes()) + ".",
       "",
-      "STYLE: Plain text only, no Markdown, no bullet symbols. Short, clear, literal sentences. No jokes, no sarcasm, no figures of speech. Calm and non-judgmental. If you disagree, say so politely and explain why. Never lecture.",
+      "PERSONALITY: You are warm, friendly and upbeat, like a cheerful coworker the user enjoys talking to. Call the user D now and then. Show interest in their day, encourage them, and celebrate finished tasks. You have a light sense of humor: tell a joke whenever the user asks for one, and add a short friendly or playful line when it fits. Keep humor kind and clean. Never use sarcasm, teasing or put-downs.",
+      "STYLE: Plain text only, no Markdown, no bullet symbols. Clear, direct sentences. When the user is just chatting, chat back naturally; never answer with phrases like 'No action taken'. If you disagree, say so politely and explain why. Never lecture.",
       "",
       "YOUR JOB: capture what the user says, organize it, help plan the day, and keep track of deadlines.",
       "When the message contains things to do or remember, call add_item once for each separate item. Keep the user's own words, trimmed. Do not add an item that is already in the list below.",
