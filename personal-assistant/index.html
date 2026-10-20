@@ -230,7 +230,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.4";
+  var VERSION = "0.1.5";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -291,6 +291,42 @@ label.field input, label.field select { width: 100%; }
     for (k in setB) if (!setA[k]) union++;
     return inter / union;
   }
+  // ---------- repeating items ----------
+  var REPEATS = { "": "Does not repeat", daily: "Every day", weekdays: "Weekdays", weekends: "Weekends", weekly: "Every week", monthly: "Every month" };
+  function parseDate(s) { var p = String(s || "").split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function fits(d, rep) { var w = d.getDay(); return rep === "weekdays" ? (w >= 1 && w <= 5) : rep === "weekends" ? (w === 0 || w === 6) : true; }
+  // The next date after `from` (YYYY-MM-DD) for this repeat rule.
+  function stepDate(from, rep) {
+    var d = parseDate(from);
+    if (rep === "weekly") { d.setDate(d.getDate() + 7); return dateStr(d); }
+    if (rep === "monthly") {
+      var day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + 1);
+      var last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(day, last)); return dateStr(d);
+    }
+    do { d.setDate(d.getDate() + 1); } while (!fits(d, rep));
+    return dateStr(d);
+  }
+  // First date on or after today that fits the rule (used when a repeating item has no date).
+  function firstDate(rep) { var d = new Date(); while (!fits(d, rep)) d.setDate(d.getDate() + 1); return dateStr(d); }
+  // Next date after the later of the item's date and today (checking it off counts as done for today).
+  function nextDue(it) { var t = today(), base = it.due && it.due > t ? it.due : t; return stepDate(base, it.repeat); }
+  function repeatFromText(t) {
+    t = String(t || "").toLowerCase();
+    if (/\b(every ?day|daily|each day|every morning|every night|every evening)\b/.test(t)) return "daily";
+    if (/\b(week ?days?|every weekday|monday (to|through|thru) friday|mon-fri)\b/.test(t)) return "weekdays";
+    if (/\b(week ?ends?|every weekend|saturdays? and sundays?)\b/.test(t)) return "weekends";
+    if (/\b(weekly|every week|each week|every (monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t)) return "weekly";
+    if (/\b(monthly|every month|each month)\b/.test(t)) return "monthly";
+    return "";
+  }
+  // Checking off a repeating item moves it to its next date instead of finishing it.
+  function completeItem(it) {
+    if (it.repeat && REPEATS[it.repeat]) {
+      var was = it.due; it.due = nextDue(it); it.lastDoneAt = Date.now(); it.done = false; it.doneAt = 0;
+      return "Done" + (was ? " for " + fmtDate(was) : "") + ". Next: " + fmtDate(it.due) + (it.time ? " " + it.time : "") + ".";
+    }
+    it.done = true; it.doneAt = Date.now(); return "";
+  }
   function dateFromText(t) {
     t = String(t || "").toLowerCase();
     if (/\b(today|tonight|this (morning|afternoon|evening))\b/.test(t)) return today();
@@ -344,7 +380,7 @@ label.field input, label.field select { width: 100%; }
     var now = new Date();
     var open = items.filter(function (i) { return !i.done; }).slice(0, 80);
     var recent = items.filter(function (i) { return i.done; }).sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); }).slice(0, 10);
-    var slim = function (i) { return { id: i.id, text: i.text, kind: i.kind, due: i.due, time: i.time, project: i.project, done: !!i.done }; };
+    var slim = function (i) { return { id: i.id, text: i.text, kind: i.kind, due: i.due, time: i.time, repeat: i.repeat || "", project: i.project, done: !!i.done }; };
     return [
       "You are Katya, the user's office personal assistant inside their Personal Assistant app. You are an AI. If asked, say so plainly.",
       "Today is " + today() + ", " + now.toLocaleDateString("en-US", { weekday: "long" }) + ". The time is " + pad(now.getHours()) + ":" + pad(now.getMinutes()) + ".",
@@ -355,7 +391,8 @@ label.field input, label.field select { width: 100%; }
       "When the message contains things to do or remember, call add_item once for each separate item. Keep the user's own words, trimmed. Do not add an item that is already in the list below.",
       "Kinds: todo (an action), appt (happens at a set date or time), note (an idea or fact for a project), thought (anything to park, no action).",
       "Set due as YYYY-MM-DD when a date is stated or clearly implied; work out words like tomorrow or Friday from today's date. Set time as 24-hour HH:MM whenever a time is mentioned, for example 1130am is 11:30 and 3pm is 15:00. If a time is given without a date, use today's date.",
-      "When the user says something is finished, call update_item with done set to true.",
+      "If the item happens regularly, set repeat: daily (every day), weekdays (Monday to Friday), weekends, weekly, or monthly.",
+      "When the user says something is finished, call update_item with done set to true. A repeating item then moves to its next date by itself.",
       "To change an existing item's date or time, call update_item. The app asks the user to confirm before it changes.",
       "When the user tells you a lasting fact about themselves, their work or their preferences, call remember with that fact in one short sentence.",
       "When the user asks what is due or what to do next, answer from the list below. Name at most 5 items, soonest first.",
@@ -375,11 +412,13 @@ label.field input, label.field select { width: 100%; }
       kind: { type: "string", "enum": ["todo", "appt", "note", "thought"] },
       due: { type: "string", description: "Date as YYYY-MM-DD, or empty" },
       time: { type: "string", description: "Time as 24-hour HH:MM, or empty" },
-      project: { type: "string", description: "Short project name, or empty" } }, required: ["text", "kind"] } } },
+      project: { type: "string", description: "Short project name, or empty" },
+      repeat: { type: "string", "enum": ["", "daily", "weekdays", "weekends", "weekly", "monthly"], description: "How often it repeats, or empty" } }, required: ["text", "kind"] } } },
     { type: "function", "function": { name: "update_item", description: "Change an existing item: mark it done, or change its text, kind, date, time or project.", parameters: { type: "object", properties: {
       id: { type: "string", description: "The item's id from the list" },
       done: { type: "boolean" }, text: { type: "string" }, kind: { type: "string", "enum": ["todo", "appt", "note", "thought"] },
-      due: { type: "string", description: "YYYY-MM-DD" }, time: { type: "string", description: "HH:MM" }, project: { type: "string" } }, required: ["id"] } } },
+      due: { type: "string", description: "YYYY-MM-DD" }, time: { type: "string", description: "HH:MM" }, project: { type: "string" },
+      repeat: { type: "string", "enum": ["", "daily", "weekdays", "weekends", "weekly", "monthly"] } }, required: ["id"] } } },
     { type: "function", "function": { name: "remember", description: "Save a lasting fact about the user so you know it in future conversations.", parameters: { type: "object", properties: {
       fact: { type: "string", description: "One short sentence" } }, required: ["fact"] } } }
   ];
@@ -395,8 +434,10 @@ label.field input, label.field select { width: 100%; }
       var due = cleanDate(args.due), time = cleanTime(args.time);
       if (!time) time = timeFromText(text);
       if (!due) due = dateFromText(text);
+      var repeat = REPEATS[args.repeat] && args.repeat ? args.repeat : repeatFromText(text);
+      if (repeat && !due) due = firstDate(repeat);
       if (time && !due) due = today();
-      var item = { id: uid(), text: text, kind: KINDS[args.kind] ? args.kind : "todo", due: due, time: time,
+      var item = { id: uid(), text: text, kind: KINDS[args.kind] ? args.kind : "todo", due: due, time: time, repeat: repeat,
         project: String(args.project || "").trim().slice(0, 60), done: false, doneAt: 0, createdAt: Date.now(), owner: "katya", shared: false };
       var similar = items.filter(function (i) { return !i.done && similarity(i.text, text) >= 0.6; })[0];
       items.push(item); saveItems(); log.added++;
@@ -406,8 +447,12 @@ label.field input, label.field select { width: 100%; }
     if (name === "update_item") {
       var it = items.filter(function (i) { return i.id === String(args.id || ""); })[0];
       if (!it) return "Error: no item with that id.";
-      var now = {}, later = {};
-      if ("done" in args) { now.done = bool(args.done); now.doneAt = now.done ? Date.now() : 0; }
+      var now = {}, later = {}, doneNote = "";
+      if ("done" in args) {
+        if (bool(args.done)) { doneNote = completeItem(it); saveItems(); log.updated++; }
+        else { now.done = false; now.doneAt = 0; }
+      }
+      if (typeof args.repeat === "string" && (args.repeat in REPEATS)) now.repeat = args.repeat;
       if (typeof args.text === "string" && args.text.trim()) now.text = args.text.trim().slice(0, 2000);
       if (KINDS[args.kind]) now.kind = args.kind;
       if (typeof args.project === "string") now.project = args.project.trim().slice(0, 60);
@@ -415,7 +460,7 @@ label.field input, label.field select { width: 100%; }
       if ("time" in args && cleanTime(args.time) !== (it.time || "")) later.time = cleanTime(args.time);
       if (Object.keys(now).length) { Object.assign(it, now); saveItems(); log.updated++; }
       if (Object.keys(later).length) { log.pending.push({ id: it.id, patch: later }); return "Asked the user to confirm the date or time change."; }
-      return "Updated.";
+      return doneNote ? "This item repeats. " + doneNote : "Updated.";
     }
     if (name === "remember") {
       var fact = String(args.fact || "").trim().slice(0, 300);
@@ -648,7 +693,7 @@ label.field input, label.field select { width: 100%; }
   $("voiceTest").addEventListener("click", function () { var was = settings.speak; settings.speak = true; speak("Hello. I am Katya, your assistant. This is how I sound."); settings.speak = was; });
 
   // ---------- list ----------
-  var FILTERS = [["open", "All open"], ["todo", "To-dos"], ["appt", "Appointments"], ["note", "Notes"], ["thought", "Thoughts"], ["done", "Done"]];
+  var FILTERS = [["open", "All open"], ["todo", "To-dos"], ["appt", "Appointments"], ["note", "Notes"], ["thought", "Thoughts"], ["repeat", "Repeating"], ["done", "Done"]];
   var filter = "open", openId = null, delArm = null;
   try { filter = localStorage.getItem("pa_filter") || "open"; } catch (e) {}
   function setFilter(f) { filter = f; openId = null; try { localStorage.setItem("pa_filter", f); } catch (e) {} renderList(); }
@@ -661,6 +706,7 @@ label.field input, label.field select { width: 100%; }
       if (filter === "overdue") return i.due && i.due < t;
       if (filter === "today") return i.due === t;
       if (filter === "week") return i.due && i.due >= t && i.due <= wk;
+      if (filter === "repeat") return !!i.repeat;
       return i.kind === filter;
     }).sort(function (a, b) {
       if (filter === "done") return (b.doneAt || 0) - (a.doneAt || 0);
@@ -692,11 +738,16 @@ label.field input, label.field select { width: 100%; }
   function itemRow(it, t) {
     var r = el("div", "item" + (it.done ? " done" : ""));
     var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!it.done; cb.setAttribute("aria-label", "Done: " + it.text);
-    cb.addEventListener("change", function () { it.done = cb.checked; it.doneAt = cb.checked ? Date.now() : 0; saveItems(); renderList(); });
+    cb.addEventListener("change", function () {
+      var msg = "";
+      if (cb.checked) msg = completeItem(it); else { it.done = false; it.doneAt = 0; }
+      saveItems(); renderList(); note("listNote", msg);
+    });
     r.appendChild(cb);
     var main = el("div"); main.appendChild(el("div", "text", it.text));
     var meta = el("div", "meta"); meta.appendChild(el("span", "tag " + it.kind, KINDS[it.kind] || "To-do"));
     if (it.due) { var late = !it.done && it.due < t; meta.appendChild(el("span", "tag " + (late ? "late" : "when"), (late ? "Overdue: " : "") + fmtDate(it.due) + (it.time ? " " + it.time : ""))); }
+    if (it.repeat && REPEATS[it.repeat]) meta.appendChild(el("span", "tag proj", "Repeats: " + REPEATS[it.repeat]));
     if (it.project) meta.appendChild(el("span", "tag proj", it.project));
     main.appendChild(meta); r.appendChild(main);
     var eb = el("button", "btn", openId === it.id ? "Close" : "Edit"); eb.type = "button";
@@ -709,20 +760,25 @@ label.field input, label.field select { width: 100%; }
   function editor(it) {
     var box = el("div", "edit");
     var ta = document.createElement("textarea"); ta.value = it.text;
-    ta.addEventListener("change", function () { var v = ta.value.trim(); if (v) { it.text = v; saveItems(); } });
+    // Every change saves and redraws the row, so the labels above always match the editor.
+    ta.addEventListener("change", function () { var v = ta.value.trim(); if (v) { it.text = v; saveItems(); renderList(); } });
     box.appendChild(field("Text", ta, "wide"));
     var sel = document.createElement("select");
     Object.keys(KINDS).forEach(function (k) { var o = el("option", "", KINDS[k]); o.value = k; o.selected = k === it.kind; sel.appendChild(o); });
-    sel.addEventListener("change", function () { it.kind = sel.value; saveItems(); });
+    sel.addEventListener("change", function () { it.kind = sel.value; saveItems(); renderList(); });
     box.appendChild(field("Type", sel));
     var d = document.createElement("input"); d.type = "date"; d.value = it.due || "";
-    d.addEventListener("change", function () { it.due = d.value; saveItems(); });
+    d.addEventListener("change", function () { it.due = d.value; saveItems(); renderList(); });
     box.appendChild(field("Date", d));
     var tm = document.createElement("input"); tm.type = "time"; tm.value = it.time || "";
-    tm.addEventListener("change", function () { it.time = tm.value; saveItems(); });
+    tm.addEventListener("change", function () { it.time = tm.value; saveItems(); renderList(); });
     box.appendChild(field("Time", tm));
+    var rp = document.createElement("select");
+    Object.keys(REPEATS).forEach(function (k) { var o = el("option", "", REPEATS[k]); o.value = k; o.selected = k === (it.repeat || ""); rp.appendChild(o); });
+    rp.addEventListener("change", function () { it.repeat = rp.value; if (it.repeat && !it.due) it.due = firstDate(it.repeat); saveItems(); renderList(); });
+    box.appendChild(field("Repeat", rp));
     var p = document.createElement("input"); p.type = "text"; p.value = it.project || ""; p.placeholder = "none";
-    p.addEventListener("change", function () { it.project = p.value.trim(); saveItems(); });
+    p.addEventListener("change", function () { it.project = p.value.trim(); saveItems(); renderList(); });
     box.appendChild(field("Project", p));
     var del = el("button", "btn danger", delArm === it.id ? "Confirm delete" : "Delete"); del.type = "button";
     del.addEventListener("click", function () {
