@@ -230,7 +230,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.3";
+  var VERSION = "0.1.4";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -275,6 +275,21 @@ label.field input, label.field select { width: 100%; }
     if (m) return pad(+m[1]) + ":" + m[2];
     if (/\bnoon\b/.test(t)) return "12:00";
     return "";
+  }
+  // How alike two item texts are, from 0 to 1, comparing their main words (ignoring times, numbers and small words).
+  var STOP = ["the", "a", "an", "at", "around", "about", "to", "for", "on", "in", "by", "my", "me", "and", "of", "with", "is", "it", "am", "pm", "today", "tomorrow", "tonight", "need", "remind"];
+  function words(t) {
+    return String(t || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(function (w) {
+      return w && !/\d/.test(w) && STOP.indexOf(w) < 0;
+    }).map(function (w) { return w.length > 3 && /s$/.test(w) && !/ss$/.test(w) ? w.slice(0, -1) : w; });
+  }
+  function similarity(a, b) {
+    var A = words(a), B = words(b); if (!A.length || !B.length) return 0;
+    var setA = {}, setB = {}, inter = 0, union = 0, k;
+    A.forEach(function (w) { setA[w] = 1; }); B.forEach(function (w) { setB[w] = 1; });
+    for (k in setA) { union++; if (setB[k]) inter++; }
+    for (k in setB) if (!setA[k]) union++;
+    return inter / union;
   }
   function dateFromText(t) {
     t = String(t || "").toLowerCase();
@@ -383,7 +398,9 @@ label.field input, label.field select { width: 100%; }
       if (time && !due) due = today();
       var item = { id: uid(), text: text, kind: KINDS[args.kind] ? args.kind : "todo", due: due, time: time,
         project: String(args.project || "").trim().slice(0, 60), done: false, doneAt: 0, createdAt: Date.now(), owner: "katya", shared: false };
+      var similar = items.filter(function (i) { return !i.done && similarity(i.text, text) >= 0.6; })[0];
       items.push(item); saveItems(); log.added++;
+      if (similar) log.pending.push({ type: "dupe", id: item.id, oldId: similar.id });
       return "Added with id " + item.id + ".";
     }
     if (name === "update_item") {
@@ -519,6 +536,11 @@ label.field input, label.field select { width: 100%; }
   function describeChange(p) {
     var it = items.filter(function (i) { return i.id === p.id; })[0];
     if (!it) return null;
+    if (p.type === "dupe") {
+      var old = items.filter(function (i) { return i.id === p.oldId; })[0];
+      if (!old) return null;
+      return "“" + it.text + "” looks like an item already on your list: “" + old.text + "”. Remove the old one?";
+    }
     var from = (it.due ? fmtDate(it.due) : "no date") + (it.time ? " " + it.time : "");
     var due = "due" in p.patch ? p.patch.due : it.due, time = "time" in p.patch ? p.patch.time : it.time;
     var to = (due ? fmtDate(due) : "no date") + (time ? " " + time : "");
@@ -530,14 +552,20 @@ label.field input, label.field select { width: 100%; }
       var d = describeChange(p); if (!d) return;
       box.appendChild(el("span", "", d));
       var r = el("div", "row");
-      var yes = el("button", "btn primary", "Confirm"); yes.type = "button";
-      var no = el("button", "btn", "Keep as is"); no.type = "button";
+      var dupe = p.type === "dupe";
+      var yes = el("button", "btn primary", dupe ? "Remove old" : "Confirm"); yes.type = "button";
+      var no = el("button", "btn", dupe ? "Keep both" : "Keep as is"); no.type = "button";
       yes.addEventListener("click", function () {
+        if (dupe) {
+          items = items.filter(function (i) { return i.id !== p.oldId; }); saveItems();
+          resolvePending(idx, j, "Removed the old item.");
+          return;
+        }
         var it = items.filter(function (i) { return i.id === p.id; })[0];
         if (it) { Object.assign(it, p.patch); saveItems(); }
         resolvePending(idx, j, "Changed.");
       });
-      no.addEventListener("click", function () { resolvePending(idx, j, "Kept as is."); });
+      no.addEventListener("click", function () { resolvePending(idx, j, dupe ? "Kept both." : "Kept as is."); });
       r.appendChild(yes); r.appendChild(no); box.appendChild(r);
     });
     return box;
