@@ -249,7 +249,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.13";
+  var VERSION = "0.1.14";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -454,6 +454,7 @@ label.field input, label.field select { width: 100%; }
   // Small talk is answered without the saving tools, because the model otherwise files jokes and greetings as items.
   var CHAT_RE = /\b(jokes?|joking|funny|make me laugh|knock[ ,.!-]*knock|who'?s there|riddle|pun|fun fact|how are you|how'?s it going|how was your|what'?s up|hello|hi|hey|good (morning|afternoon|evening|night)|thanks|thank you|who are you|what can you do|about yourself|your name|you there)\b/i;
   var TASK_RE = /\b(remind|add|to-?do|list|schedule|appointment|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekdays?|weekends?|every|need to|have to|must|deadline|due|remember that|at \d|\d\s*(am|pm))\b/i;
+  var NO_ACTION_RE = /^(no action (taken|needed|required)|nothing to (add|save|do))\.?$/i;
   function isSmallTalk(text) {
     var prev = chat.slice(0, -1).filter(function (m) { return m.role === "assistant"; }).slice(-1)[0];
     var p = prev ? String(prev.content || "").trim() : "";
@@ -548,10 +549,11 @@ label.field input, label.field select { width: 100%; }
     $("chatInput").value = ""; try { localStorage.removeItem("pa_draft"); } catch (e) {}
     renderChat(true);
 
-    var history = chat.slice(-16).filter(function (m) { return m.role === "user" || m.role === "assistant"; }).map(function (m) { return { role: m.role, content: m.content }; });
+    // Old "No action taken." replies are left out, so the model does not copy them.
+    var history = chat.slice(-16).filter(function (m) { return (m.role === "user" || m.role === "assistant") && !NO_ACTION_RE.test(String(m.content || "").trim()); }).map(function (m) { return { role: m.role, content: m.content }; });
     var msgs = [{ role: "system", content: systemPrompt() }].concat(history);
     var log = { added: 0, updated: 0, remembered: 0, pending: [], addedIds: [], notes: [], facts: [] };
-    var round = 0, smallTalk = isSmallTalk(text);
+    var round = 0, smallTalk = isSmallTalk(text), retriedPlain = false;
 
     function step() {
       var useTools = round < 3 && !smallTalk;
@@ -568,7 +570,12 @@ label.field input, label.field select { width: 100%; }
           round++;
           return step();
         }
-        return String(m.content || "").trim();
+        var out = String(m.content || "").trim();
+        // If the model gives an empty or "No action taken." answer, ask once more without the saving tools so it talks to D.
+        if (useTools && !retriedPlain && !log.addedIds.length && !log.notes.length && !log.facts.length && !log.updated && (!out || NO_ACTION_RE.test(out))) {
+          retriedPlain = true; smallTalk = true; return step();
+        }
+        return out;
       });
     }
 
