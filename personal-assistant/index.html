@@ -67,6 +67,13 @@ select, input[type="text"], input[type="url"], input[type="date"], input[type="t
 .box textarea { width: 100%; min-height: 90px; resize: vertical; border: 0; background: transparent; padding: 4px; font-size: 1.05rem; }
 .box textarea:focus { outline: none; }
 .chat { display: flex; flex-direction: column; gap: 10px; }
+/* On the Katya tab the page fits the window: the conversation scrolls, the message box stays at the bottom. */
+body.katya-on { overflow: hidden; }
+body.katya-on .wrap { height: 100vh; height: 100dvh; padding-bottom: 16px; }
+#view-katya { flex: 1 1 auto; min-height: 0; }
+header, .tabs, #view-katya .ai-label, #view-katya .box, #view-katya .note { flex-shrink: 0; }
+#view-katya .chat { flex: 1 1 auto; min-height: 80px; overflow-y: auto; padding-right: 4px; }
+#view-katya .box textarea { min-height: 64px; }
 .msg { max-width: 88%; padding: 9px 12px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.me { align-self: flex-end; background: var(--ink); color: var(--bg); }
 .msg.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); }
@@ -230,7 +237,7 @@ label.field input, label.field select { width: 100%; }
 <script>
 (function () {
   "use strict";
-  var VERSION = "0.1.5";
+  var VERSION = "0.1.6";
   var KINDS = { todo: "To-do", appt: "Appointment", note: "Note", thought: "Thought" };
   var DEFAULTS = { endpoint: "https://mini1.taild9c364.ts.net", model: "llama3.1:8b", autoSend: false, autoSecs: "5", speak: false, voice: "" };
   var EE_LANGS = ["pl", "ru", "cs", "sk", "hu", "ro", "uk", "bg", "sl", "hr", "sr", "lt", "lv", "et"];
@@ -273,6 +280,8 @@ label.field input, label.field select { width: 100%; }
     }
     m = t.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
     if (m) return pad(+m[1]) + ":" + m[2];
+    m = t.match(/(?:\bat|\baround|@)\s*(\d{1,2})(\d{2})\b/);
+    if (m && +m[1] < 24 && +m[2] < 60) return pad(+m[1]) + ":" + m[2];
     if (/\bnoon\b/.test(t)) return "12:00";
     return "";
   }
@@ -312,8 +321,8 @@ label.field input, label.field select { width: 100%; }
   function nextDue(it) { var t = today(), base = it.due && it.due > t ? it.due : t; return stepDate(base, it.repeat); }
   function repeatFromText(t) {
     t = String(t || "").toLowerCase();
+    if (/\b(week ?days?|every weekday|mon(day)? ?(-|to|through|thru) ?fri(day)?)\b/.test(t)) return "weekdays";
     if (/\b(every ?day|daily|each day|every morning|every night|every evening)\b/.test(t)) return "daily";
-    if (/\b(week ?days?|every weekday|monday (to|through|thru) friday|mon-fri)\b/.test(t)) return "weekdays";
     if (/\b(week ?ends?|every weekend|saturdays? and sundays?)\b/.test(t)) return "weekends";
     if (/\b(weekly|every week|each week|every (monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t)) return "weekly";
     if (/\b(monthly|every month|each month)\b/.test(t)) return "monthly";
@@ -344,6 +353,7 @@ label.field input, label.field select { width: 100%; }
   var VIEWS = ["katya", "list", "memory", "settings"];
   function show(v) {
     VIEWS.forEach(function (n) { $("view-" + n).hidden = n !== v; $("tab-" + n).setAttribute("aria-selected", String(n === v)); });
+    document.body.classList.toggle("katya-on", v === "katya");
     try { localStorage.setItem("pa_tab", v); } catch (e) {}
     if (v === "list") renderList(); if (v === "memory") renderMem(); if (v === "katya") $("chatInput").focus();
   }
@@ -440,7 +450,7 @@ label.field input, label.field select { width: 100%; }
       var item = { id: uid(), text: text, kind: KINDS[args.kind] ? args.kind : "todo", due: due, time: time, repeat: repeat,
         project: String(args.project || "").trim().slice(0, 60), done: false, doneAt: 0, createdAt: Date.now(), owner: "katya", shared: false };
       var similar = items.filter(function (i) { return !i.done && similarity(i.text, text) >= 0.6; })[0];
-      items.push(item); saveItems(); log.added++;
+      items.push(item); saveItems(); log.added++; log.addedIds.push(item.id);
       if (similar) log.pending.push({ type: "dupe", id: item.id, oldId: similar.id });
       return "Added with id " + item.id + ".";
     }
@@ -449,7 +459,7 @@ label.field input, label.field select { width: 100%; }
       if (!it) return "Error: no item with that id.";
       var now = {}, later = {}, doneNote = "";
       if ("done" in args) {
-        if (bool(args.done)) { doneNote = completeItem(it); saveItems(); log.updated++; }
+        if (bool(args.done)) { doneNote = completeItem(it); saveItems(); log.updated++; log.notes.push("Marked “" + it.text + "” done." + (doneNote ? " " + doneNote.replace(/^Done[^.]*\. /, "") : "")); }
         else { now.done = false; now.doneAt = 0; }
       }
       if (typeof args.repeat === "string" && (args.repeat in REPEATS)) now.repeat = args.repeat;
@@ -466,7 +476,7 @@ label.field input, label.field select { width: 100%; }
       var fact = String(args.fact || "").trim().slice(0, 300);
       if (!fact) return "Error: fact is empty.";
       if (memory.some(function (m) { return m.text.toLowerCase() === fact.toLowerCase(); })) return "Already remembered.";
-      memory.push({ id: uid(), text: fact, createdAt: Date.now() }); saveMem(); log.remembered++;
+      memory.push({ id: uid(), text: fact, createdAt: Date.now() }); saveMem(); log.remembered++; log.facts.push(fact.replace(/[.]+$/, ""));
       return "Remembered.";
     }
     return "Error: unknown tool " + name + ".";
@@ -511,7 +521,7 @@ label.field input, label.field select { width: 100%; }
 
     var history = chat.slice(-16).filter(function (m) { return m.role === "user" || m.role === "assistant"; }).map(function (m) { return { role: m.role, content: m.content }; });
     var msgs = [{ role: "system", content: systemPrompt() }].concat(history);
-    var log = { added: 0, updated: 0, remembered: 0, pending: [] };
+    var log = { added: 0, updated: 0, remembered: 0, pending: [], addedIds: [], notes: [], facts: [] };
     var round = 0;
 
     function step() {
@@ -535,6 +545,18 @@ label.field input, label.field select { width: 100%; }
 
     step().then(function (reply) {
       markOnline();
+      // When only one item was added, read missing schedule details from the whole message, not just the item's words.
+      if (log.addedIds.length === 1) {
+        var it = items.filter(function (i) { return i.id === log.addedIds[0]; })[0];
+        if (it) {
+          if (!it.repeat) { var r = repeatFromText(text); if (r) it.repeat = r; }
+          if (!it.time) { var tm = timeFromText(text); if (tm) it.time = tm; }
+          if (!it.due) it.due = dateFromText(text) || (it.repeat ? firstDate(it.repeat) : "") || (it.time ? today() : "");
+          saveItems();
+        }
+      }
+      // After saving things, the app writes the reply itself, so it is short and accurate.
+      if (log.addedIds.length || log.notes.length || log.facts.length) reply = summary(log);
       var parts = [];
       if (log.added) parts.push("Added " + log.added + (log.added === 1 ? " item" : " items"));
       if (log.updated) parts.push("Updated " + log.updated + (log.updated === 1 ? " item" : " items"));
@@ -558,6 +580,22 @@ label.field input, label.field select { width: 100%; }
     });
   }
 
+  function whenText(it) {
+    var bits = [];
+    if (it.repeat && REPEATS[it.repeat]) bits.push(REPEATS[it.repeat].toLowerCase());
+    if (it.due && !it.repeat) bits.push(it.due === today() ? "today" : it.due === plusDays(1) ? "tomorrow" : fmtDate(it.due));
+    if (it.time) bits.push("at " + it.time);
+    return bits.length ? " (" + bits.join(", ") + ")" : "";
+  }
+  function summary(log) {
+    var out = [];
+    var added = log.addedIds.map(function (id) { return items.filter(function (i) { return i.id === id; })[0]; }).filter(Boolean);
+    if (added.length) out.push("I added " + added.length + (added.length === 1 ? " item: " : " items: ") + added.map(function (i) { return i.text + whenText(i); }).join("; ") + ".");
+    out = out.concat(log.notes);
+    if (log.facts.length) out.push("I will remember: " + log.facts.join("; ") + ".");
+    return out.join(" ");
+  }
+
   // ---------- chat view ----------
   var chatEl = $("chat");
   function renderChat(pending) {
@@ -576,7 +614,7 @@ label.field input, label.field select { width: 100%; }
     });
     if (pending) chatEl.appendChild(el("div", "msg bot", "Thinking..."));
     $("sendBtn").disabled = busy; $("stopBtn").hidden = !busy;
-    if (chatEl.lastChild) chatEl.lastChild.scrollIntoView({ block: "nearest" });
+    chatEl.scrollTop = chatEl.scrollHeight;
   }
   function describeChange(p) {
     var it = items.filter(function (i) { return i.id === p.id; })[0];
